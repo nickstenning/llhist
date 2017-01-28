@@ -72,9 +72,23 @@ class Bin(object):
             self.exp = 0
             return
 
-        if v < 10:
-            self.val = 0
-            self.exp = 0
-            return
-
         self.val = sign * math.floor(v)
+
+    def value(self):
+        if -10 < self.val < 10:
+            return 0.0
+        return (self.val / 10.0) * POWER_OF_TEN[self.exp]
+
+    def width(self):
+        if -10 < self.val < 10:
+            return 0.0
+        return POWER_OF_TEN[self.exp] / 10.0
+
+    def midpoint(self):
+        v = self.value()
+        if v == 0:
+            return 0.0
+        elif v < 0:
+            return v - self.width() / 2
+        else:
+            return v + self.width() / 2
