@@ -1,3 +1,7 @@
+# Copyright 2017, Nick Stenning. All rights reserved.
+# Copyright 2016, Circonus, Inc. All rights reserved.
+# See the LICENSE file.
+
 import math
 
 DEFAULT_HIST_SIZE = 100
