@@ -1,5 +1,6 @@
 import math
 
+DEFAULT_HIST_SIZE = 100
 POWER_OF_TEN = [
     1, 10, 100, 1000, 10000, 100000, 1e+06, 1e+07, 1e+08, 1e+09, 1e+10, 1e+11,
     1e+12, 1e+13, 1e+14, 1e+15, 1e+16, 1e+17, 1e+18, 1e+19, 1e+20, 1e+21,
@@ -92,3 +93,133 @@ class Bin(object):
             return v - self.width() / 2
         else:
             return v + self.width() / 2
+
+    def sortkey(self):
+        if self.val == 0:
+            return (0, 0, 0)
+        elif self.val > 0:
+            return (1, self.exp, self.val)
+        else:
+            return (-1, -self.exp, self.val)
+
+    def compare(self, other):
+        key = self.sortkey()
+        key_other = other.sortkey()
+        if key > key_other:
+            return -1
+        elif key < key_other:
+            return 1
+        else:
+            return 0
+
+    def __repr__(self):
+        return '<Bin value={} count={}>'.format(self.value(), self.count)
+
+
+class Histogram(object):
+    __slots__ = ['bins', 'len', 'cap', '_lookup']
+
+    def __init__(self):
+        self.bins = [Bin() for _ in range(DEFAULT_HIST_SIZE)]
+        self.len = 0
+        self.cap = DEFAULT_HIST_SIZE
+        self._lookup = [None for _ in range(256)]
+
+    def record_value(self, v, count=1):
+        b = Bin()
+        b.set(v)
+        self._insert_bin(b, count)
+
+    def approx_mean(self):
+        divisor = 0
+        sum_ = 0
+        for i in range(self.len):
+            midpoint = self.bins[i].midpoint()
+            cardinality = self.bins[i].count
+            divisor += cardinality
+            sum_ += midpoint * cardinality
+        if divisor == 0.0:
+            return float('nan')
+        return sum_ / divisor
+
+    def approx_sum(self):
+        sum_ = 0
+        for i in range(self.len):
+            midpoint = self.bins[i].midpoint()
+            cardinality = self.bins[i].count
+            sum_ += midpoint * cardinality
+        return sum_
+
+    def _insert_bin(self, b, count):
+        found, idx = self._find_bin(b)
+
+        if not found:
+            if self.len == self.cap:
+                self.bins.insert(idx, Bin())
+                self.bins.extend([Bin() for _ in range(DEFAULT_HIST_SIZE - 1)])
+                self.cap += DEFAULT_HIST_SIZE
+            else:
+                self.bins[idx+1:self.len+1], self.bins[idx] = self.bins[idx:self.len], self.bins[self.len]
+            self.bins[idx].val = b.val
+            self.bins[idx].exp = b.exp
+            self.bins[idx].count = count
+            self.len += 1
+
+            for i in range(idx, self.len):
+                l1, l2 = _lookupkey(self.bins[i])
+                if self._lookup[l1] is None:
+                    self._lookup[l1] = [0 for _ in range(256)]
+                self._lookup[l1][l2] = i + 1
+
+            return self.bins[idx].count
+
+        newval = self.bins[idx].count + count
+
+        # FIXME: wtf?
+        # if newval < self.bins[idx].count:  # rolled
+        #     newval = 2**64 - 1
+
+        self.bins[idx].count = newval
+
+    def _find_bin(self, b):
+        if self.len == 0:
+            return False, 0
+
+        l1, l2 = _lookupkey(b)
+
+        if self._lookup[l1] is not None:
+            idx = self._lookup[l1][l2]
+            if idx != 0:
+                return True, idx - 1
+
+        rv = -1
+        idx = 0
+        l = 0
+        r = self.len - 1
+
+        while l < r:
+            check = (r + l) // 2
+            rv = self.bins[check].compare(b)
+            if rv == 0:
+                l = check
+                r = check
+            elif rv > 0:
+                l = check + 1
+            else:
+                r = check - 1
+
+        if rv != 0:
+            rv = self.bins[l].compare(b)
+
+        idx = l
+
+        if rv == 0:
+            return True, idx
+        if rv < 0:
+            return False, idx
+        idx += 1
+        return False, idx
+
+
+def _lookupkey(b):
+    return b.exp & 0xFF, b.val & 0xFF

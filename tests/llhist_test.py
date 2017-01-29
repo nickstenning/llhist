@@ -1,4 +1,6 @@
+import functools
 import math
+import random
 import sys
 
 import pytest
@@ -6,6 +8,7 @@ from hypothesis import strategies as st
 from hypothesis import given
 
 from llhist import Bin
+from llhist import Histogram
 
 
 def nextfloat(v):
@@ -29,6 +32,8 @@ VALID_FLOATS = st.floats(min_value=NEG_MIN,
 
 ACCEPTABLE_VALS = set(range(-99, -9)) | set([0]) | set(range(10, 100))
 ACCEPTABLE_EXPS = set(range(-128, 128))
+
+EXAMPLE_SAMPLES = [0.123, 0, 0.43, 0.41, 0.415, 0.2201, 0.3201, 0.125, 0.13]
 
 
 class TestBin(object):
@@ -162,8 +167,107 @@ class TestBin(object):
 
         assert math.isclose(b.width(), width)
 
+    def test_compare(self):
+        b1, b2, b3, b4 = Bin(), Bin(), Bin(), Bin()
+        b1.set(10.0)
+        b2.set(10.0)
+        b3.set(5.0)
+        b4.set(20.0)
 
-def test_bench_bin_set(benchmark):
-    b = Bin()
-    v = VALID_FLOATS.example()
-    benchmark(b.set, v)
+        assert b1.compare(b2) == 0
+        assert b1.compare(b3) == -1
+        assert b1.compare(b4) == 1
+
+    def test_compare_total(self):
+        values = [
+            -5e5,
+            -1e5,
+            -5e1,
+            -1e1,
+            -5e-5,
+            -1e-5,
+            0,
+            1e-5,
+            5e-5,
+            1e1,
+            5e1,
+            1e5,
+            5e5,
+        ]
+        bins = []
+
+        for i, v in enumerate(values):
+            b = Bin()
+            b.set(v)
+            bins.append((i, b))
+
+        def key(o):
+            _, b = o
+            return b.sortkey()
+
+        random.shuffle(bins)
+        bins.sort(key=key)
+
+        assert [id_ for (id_, _) in bins] == list(range(len(values)))
+
+    def test_bench_bin_set(self, benchmark):
+        b = Bin()
+
+        def setup():
+            return (VALID_FLOATS.example(),), {}
+
+        benchmark.pedantic(b.set, setup=setup, iterations=1, rounds=10000)
+
+
+class TestHistogram(object):
+
+    @given(v=VALID_FLOATS, count=st.integers())
+    def test_record_value(self, v, count):
+        h = Histogram()
+        h.record_value(v, count=count)
+
+    def test_bench_hist_record_value(self, benchmark):
+        h = Histogram()
+
+        def setup():
+            return (random.gauss(mu=0.0, sigma=5.0), 1), {}
+
+        benchmark.pedantic(h.record_value, setup=setup, iterations=1, rounds=10000)
+
+    def test_approx_mean(self):
+        h = Histogram()
+        for s in EXAMPLE_SAMPLES:
+            h.record_value(s)
+        assert math.isclose(h.approx_mean(), 0.2444444444)
+
+    def test_approx_mean_no_samples(self):
+        h = Histogram()
+        assert math.isnan(h.approx_mean())
+
+    @given(vs=st.lists(elements=VALID_FLOATS, min_size=1, max_size=500))
+    def test_approx_mean_invariant(self, vs):
+        h1 = Histogram()
+        h2 = Histogram()
+        for v in vs:
+            h1.record_value(v)
+            h2.record_value(v)
+        for v in vs:
+            h2.record_value(v)
+        assert math.isclose(h1.approx_mean(), h2.approx_mean())
+
+    def test_approx_sum(self):
+        h = Histogram()
+        for s in EXAMPLE_SAMPLES:
+            h.record_value(s)
+        assert math.isclose(h.approx_sum(), 2.2)
+
+    @given(vs=st.lists(elements=VALID_FLOATS, min_size=1))
+    def test_approx_sum_doubles(self, vs):
+        h1 = Histogram()
+        h2 = Histogram()
+        for v in vs:
+            h1.record_value(v)
+            h2.record_value(v)
+        for v in vs:
+            h2.record_value(v)
+        assert math.isclose(2 * h1.approx_sum(), h2.approx_sum())
